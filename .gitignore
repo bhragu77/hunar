@@ -1,0 +1,27 @@
+# --- env files ---
+.env
+*.env
+!.env.example
+!.env*.example
+
+# --- node / frontend ---
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+next-env.d.ts
+npm-debug.log*
+
+# --- python / backend ---
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# --- misc ---
+.DS_Store
+*.pem
+.claude/
