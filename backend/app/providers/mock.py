@@ -1,5 +1,6 @@
 import json
 import logging
+import random
 import threading
 import time
 import uuid
@@ -77,18 +78,34 @@ class MockProvider(VoiceProvider):
         self._scheduler = scheduler
         self._lock = threading.Lock()
         self._calls: dict[str, ProviderCall] = {}
+        # Seeded from the module-level defaults, then grown by create_agent - e.g. Module 2's
+        # auto-created outreach agents. Per-instance so each MockProvider() (each test, each
+        # process) starts clean instead of leaking agents across instances via a shared list.
+        self._agents: list[Agent] = list(_MOCK_AGENTS)
 
     def list_agents(self) -> list[Agent]:
-        return list(_MOCK_AGENTS)
+        with self._lock:
+            return list(self._agents)
 
     def get_agent(self, agent_id: str) -> Agent:
-        for agent in _MOCK_AGENTS:
-            if agent.id == agent_id:
-                return agent
+        with self._lock:
+            for agent in self._agents:
+                if agent.id == agent_id:
+                    return agent
         raise ProviderError(f"Unknown mock agent id: {agent_id}", status_code=404)
 
     def create_agent(self, spec: AgentSpec) -> Agent:
-        raise NotImplementedError("Mock agent creation isn't needed in this phase.")
+        agent = Agent(
+            id=f"agent_mock_{uuid.uuid4().hex[:12]}",
+            name=spec.name,
+            voice_persona=spec.voice_persona,
+            language=spec.language,
+            custom_variables=spec.custom_variables,
+            result_schema=spec.result_schema,
+        )
+        with self._lock:
+            self._agents.append(agent)
+        return agent
 
     def list_numbers(self) -> list[PhoneNumber]:
         return list(_MOCK_NUMBERS)
@@ -162,7 +179,7 @@ class MockProvider(VoiceProvider):
                 answered_by="HUMAN",
                 call_ended_by="AGENT",
                 recording_url=f"https://mock-recordings.hunar.local/{provider_call_id}.mp3",
-                result=_fake_result(agent),
+                result=_fake_result(agent, provider_call_id),
                 duration_seconds=duration_seconds,
                 started_at=started_at,
                 ended_at=ended_at,
@@ -230,14 +247,30 @@ class MockProvider(VoiceProvider):
             )
 
 
-def _fake_result(agent: Agent) -> dict[str, object]:
-    """Generate a believable result matching the agent's declared result_schema."""
+_STRING_SAMPLES: dict[str, list[str]] = {
+    "current_ctc": ["6 LPA", "9 LPA", "12 LPA", "18 LPA"],
+    "expected_ctc": ["8 LPA", "12 LPA", "16 LPA", "22 LPA"],
+    "notice_period": ["Immediate", "15 days", "30 days", "60 days"],
+    "relevant_experience": ["2 years", "3 years", "5 years", "7 years"],
+}
+
+
+def _fake_result(agent: Agent, provider_call_id: str) -> dict[str, object]:
+    """Generate a believable result matching the agent's declared result_schema.
+
+    Seeded by provider_call_id so each simulated call gets a stable-but-varied outcome
+    (rather than every call being identically "interested") - this is what lets a mock
+    outreach campaign's funnel actually populate across multiple buckets for a demo.
+    """
+    rng = random.Random(provider_call_id)
     result: dict[str, object] = {}
     for key, kind in agent.result_schema.items():
         if kind == "boolean":
-            result[key] = True
+            result[key] = rng.random() < 0.6
         elif kind == "number":
-            result[key] = 3
+            result[key] = rng.randint(1, 8)
+        elif key in _STRING_SAMPLES:
+            result[key] = rng.choice(_STRING_SAMPLES[key])
         else:
             result[key] = f"Mock {key.replace('_', ' ')}"
     return result

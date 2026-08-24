@@ -1,0 +1,25 @@
+# Backend build context is the repo root (see backend/Dockerfile) so it can bake in docs/.
+# Exclude everything the backend image doesn't need - frontend deps/build output are the bulk
+# of it (hundreds of MB), and .git/.venv/.env must never reach a build context either way.
+.git/
+.env
+*.env
+!.env.example
+!.env*.example
+
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/*.tsbuildinfo
+frontend/next-env.d.ts
+
+backend/.venv/
+backend/venv/
+**/__pycache__/
+**/*.pyc
+backend/.pytest_cache/
+backend/.ruff_cache/
+
+.DS_Store
+*.pem
+.claude/

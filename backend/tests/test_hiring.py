@@ -1,12 +1,12 @@
 import time
 
 import httpx
-import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import Session, select
 
 from app.core.config import settings
 from app.core.db import engine
+from app.core.scheduler import wait_until_idle
 from app.integrations.transcription import transcribe
 from app.main import app
 from app.models.call import Call
@@ -78,15 +78,11 @@ def test_hiring_module_end_to_end_via_api(monkeypatch):
     with Session(engine) as session:
         apply_call_update(session, update, source=CallEventSource.poll)
 
-    detail = None
-    deadline = time.time() + 5
-    while time.time() < deadline:
-        detail = client.get(f"/api/calls/{call_id}").json()
-        if detail["call"]["scorecard_status"] != "pending" and detail["call"]["transcript_status"] != "pending":
-            break
-        time.sleep(0.1)
-    else:
-        pytest.fail("post-call pipeline did not finish in time")
+    # apply_call_update just scheduled the post-call pipeline (transcript + scorecard) as a
+    # one-off background job - wait for it to actually finish rather than polling the API and
+    # hoping a fixed timeout was long enough.
+    wait_until_idle()
+    detail = client.get(f"/api/calls/{call_id}").json()
 
     assert detail["call"]["transcript_status"] == "done"
     assert detail["call"]["transcript"]

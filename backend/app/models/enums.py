@@ -21,3 +21,17 @@ class PostCallStatus(str, Enum):
     done = "done"
     failed = "failed"
     skipped = "skipped"
+
+
+class AttendanceStatus(str, Enum):
+    pending = "pending"
+    present = "present"
+    absent = "absent"
+    unreachable = "unreachable"
+
+
+class AttendanceSource(str, Enum):
+    supervisor_call = "supervisor_call"
+    missed_call = "missed_call"
+    manual = "manual"
+    worker_call = "worker_call"

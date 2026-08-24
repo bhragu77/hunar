@@ -24,7 +24,9 @@ class Campaign(SQLModel, table=True):
     name: str
     description: str | None = None  # the JD / evaluation criteria for the role (hiring module)
     module: Module
-    agent_id: str
+    # Nullable: an outreach campaign can be created before its auto-created agent succeeds (or
+    # before HR picks a fallback agent) - see app/services/outreach.py.
+    agent_id: str | None = None
     result_schema: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
     status: str = "active"
     meta: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))

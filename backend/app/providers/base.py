@@ -32,12 +32,19 @@ class Agent(BaseModel):
 
 
 class AgentSpec(BaseModel):
-    """Input for create_agent. Not exercised by this phase's routes, but part of the
-    interface every provider must support."""
+    """Input for create_agent - matches Hunar's real create-agent payload shape. The
+    persona/prompt fields default to empty so voice-module callers that only care about
+    name/voice_persona/language/result_schema (this phase's routes) don't need to supply
+    them; app/services/agent_designer.py (Module 2) fills them in from a job description."""
 
     name: str
     voice_persona: str
     language: str
+    persona_name: str = ""
+    agent_prompt: str = ""
+    objective: str = ""
+    introduction: str = ""
+    result_prompt: str = ""
     custom_variables: dict[str, Any] = {}
     result_schema: dict[str, Any] = {}
 

@@ -51,6 +51,11 @@ class Call(SQLModel, table=True):
     scorecard_error: str | None = None
     scorecard_generated_at: datetime | None = None
 
+    # Outreach module only (see app/services/outreach.py) - a 1-2 line LLM recap of the call.
+    # No status field: idempotency is gated on this being None, mirroring the simpler needs
+    # of a single-shot summary vs. the hiring module's richer scorecard pipeline.
+    outreach_summary: str | None = None
+
     created_at: datetime = Field(default_factory=_utcnow)
     updated_at: datetime = Field(default_factory=_utcnow)
     started_at: datetime | None = None

@@ -46,10 +46,14 @@ from sqlmodel import Session, delete  # noqa: E402
 
 from app.core.config import settings  # noqa: E402
 from app.core.db import engine, init_db  # noqa: E402
-from app.core.scheduler import scheduler  # noqa: E402
+from app.core.scheduler import scheduler, wait_until_idle  # noqa: E402
+from app.models.attendance_record import AttendanceRecord  # noqa: E402
 from app.models.call import Call  # noqa: E402
 from app.models.call_event import CallEvent  # noqa: E402
 from app.models.campaign import Campaign  # noqa: E402
+from app.models.location import Location  # noqa: E402
+from app.models.sourced_candidate import SourcedCandidate  # noqa: E402
+from app.models.worker import Worker  # noqa: E402
 from app.providers.factory import get_voice_provider  # noqa: E402
 
 
@@ -63,6 +67,7 @@ def _force_mock_provider():
     settings.VOICE_PROVIDER = "mock"
     settings.LLM_PROVIDER = "mock"
     settings.TRANSCRIPTION_PROVIDER = "mock"
+    settings.PEOPLE_SEARCH_PROVIDER = "mock"
     get_voice_provider.cache_clear()  # in case anything already cached a real provider
 
 
@@ -96,10 +101,22 @@ def _reset_provider_cache():
 @pytest.fixture(autouse=True)
 def _clean_tables():
     """Wipe voice-core tables before every test. Safe: this only ever runs against the
-    isolated _test database set up above, never the live/dev one."""
+    isolated _test database set up above, never the live/dev one.
+
+    Drains the scheduler first: a previous test's mock call simulation (or its post-call
+    pipeline job) can still be running in a background thread well after that test's own
+    assertions passed - see app/core/scheduler.py::wait_until_idle. Without this, a stray
+    background job's DB write (or self-signed webhook POST) could land after these deletes,
+    racing the next test in a way that's flaky rather than deterministic.
+    """
+    wait_until_idle()
     with Session(engine) as session:
+        session.exec(delete(AttendanceRecord))
+        session.exec(delete(SourcedCandidate))
         session.exec(delete(CallEvent))
         session.exec(delete(Call))
         session.exec(delete(Campaign))
+        session.exec(delete(Worker))
+        session.exec(delete(Location))
         session.commit()
     yield

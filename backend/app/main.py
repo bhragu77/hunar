@@ -22,6 +22,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     logger.info("Starting up - initializing database")
     init_db()
 
+    if settings.DEMO_SEED_ON_START:
+        _seed_demo_data_if_enabled()
+
     scheduler.add_job(
         poll_stale_calls,
         trigger="interval",
@@ -36,6 +39,23 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     scheduler.shutdown(wait=False)
     logger.info("Background scheduler stopped")
+
+
+def _seed_demo_data_if_enabled() -> None:
+    """Best-effort, idempotent Attendance demo seed - see settings.DEMO_SEED_ON_START. Never
+    blocks startup: a failure here (e.g. a cold DB not quite ready) just leaves the empty-state
+    "Seed demo data" button as the fallback."""
+    from sqlmodel import Session
+
+    from app.core.db import engine
+    from app.services.attendance import seed_demo
+
+    try:
+        with Session(engine) as session:
+            result = seed_demo(session)
+        logger.info("Demo seed on startup: %s", result)
+    except Exception:
+        logger.exception("Demo seed on startup failed - continuing without it")
 
 
 def create_app() -> FastAPI:

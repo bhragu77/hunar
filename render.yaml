@@ -1,0 +1,96 @@
+# Render Blueprint - deploys the FastAPI backend + a managed Postgres database.
+# The frontend deploys separately on Vercel (see DEPLOYMENT.md).
+#
+# All provider defaults below are "mock" on purpose: the deployed backend must run end-to-end
+# with zero external API keys. Flip a provider to a real one later by editing its env var in
+# the Render dashboard (Environment tab) - no redeploy of code required, just a restart.
+
+databases:
+  - name: hunar-db
+    databaseName: hunar
+    user: hunar
+    plan: free
+
+services:
+  - type: web
+    name: hunar-backend
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: .
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: hunar-db
+          property: connectionString
+
+      # --- Voice Core: mock by default, no key needed ---
+      - key: VOICE_PROVIDER
+        value: mock
+      - key: HUNAR_API_KEY
+        value: replace-me
+      - key: HUNAR_BASE_URL
+        value: https://api.voice.hunar.ai/external/v1
+      - key: MOCK_WEBHOOK_SECRET
+        generateValue: true
+      - key: MOCK_CALL_DURATION_SECONDS
+        value: "8"
+      - key: POLL_INTERVAL_SECONDS
+        value: "10"
+      - key: POLL_STALE_AFTER_SECONDS
+        value: "20"
+      - key: WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS
+        value: "300"
+      # This backend's own public URL, so MockProvider can POST its self-signed webhook back
+      # to itself. Render doesn't know this URL until after the first deploy - see
+      # DEPLOYMENT.md step "Fix the self-referencing URL" for the one manual edit needed.
+      - key: INTERNAL_BASE_URL
+        value: https://REPLACE-WITH-THIS-SERVICES-RENDER-URL.onrender.com
+      - key: PUBLIC_BASE_URL
+        value: ""
+
+      # --- Post-call pipeline (transcript + scorecard): mock by default, no key needed ---
+      - key: LLM_PROVIDER
+        value: mock
+      - key: LLM_MODEL
+        value: ""
+      - key: TRANSCRIPTION_PROVIDER
+        value: mock
+      - key: ENABLE_POST_CALL_PIPELINE
+        value: "true"
+
+      # --- People Search & Reachout (Module 2): mock by default, no key needed ---
+      - key: PEOPLE_SEARCH_PROVIDER
+        value: mock
+      - key: PEOPLE_SEARCH_MAX_RESULTS
+        value: "25"
+      - key: AGENT_AUTOCREATE
+        value: "true"
+
+      # --- Attendance (Module 3) ---
+      - key: ATTENDANCE_PRESENT_RATE
+        value: "0.85"
+      - key: ATTENDANCE_MISSED_CALL_RATE
+        value: "0.4"
+      # Seeds the 100-location / ~1,000-worker demo dataset on first boot (idempotent) so a
+      # reviewer's first click already shows a populated Attendance dashboard - see
+      # app/main.py::_seed_demo_data_if_enabled. Left off in docker-compose.yml on purpose so a
+      # local run never surprise-seeds your dev DB.
+      - key: DEMO_SEED_ON_START
+        value: "true"
+
+      # --- Real provider keys: leave blank; fill in only to upgrade a specific layer ---
+      - key: APOLLO_API_KEY
+        value: ""
+      - key: PDL_API_KEY
+        value: ""
+      - key: ANTHROPIC_API_KEY
+        value: ""
+      - key: OPENAI_API_KEY
+        value: ""
+
+      # CORS: the deployed Vercel frontend's origin. Fill in after the frontend is deployed
+      # (see DEPLOYMENT.md) - comma-separate multiple origins if you also keep a preview URL.
+      - key: BACKEND_CORS_ORIGINS
+        value: https://REPLACE-WITH-YOUR-VERCEL-DOMAIN.vercel.app

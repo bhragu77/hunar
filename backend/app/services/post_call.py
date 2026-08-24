@@ -9,7 +9,8 @@ from app.integrations.transcription import transcribe
 from app.models.call import Call
 from app.models.call_event import CallEvent
 from app.models.campaign import Campaign
-from app.models.enums import CallEventSource, PostCallStatus
+from app.models.enums import CallEventSource, Module, PostCallStatus
+from app.services.outreach import build_outreach_summary
 from app.services.scorecard import build_scorecard
 
 logger = logging.getLogger("app.services.post_call")
@@ -36,7 +37,12 @@ def post_process_call(call_id: UUID) -> None:
         campaign = session.get(Campaign, call.campaign_id) if call.campaign_id else None
 
         _run_transcript_step(session, call)
-        _run_scorecard_step(session, call, campaign)
+        if campaign is not None and campaign.module == Module.outreach:
+            _run_outreach_summary_step(session, call, campaign)
+        elif campaign is not None and campaign.module == Module.attendance:
+            _run_attendance_step(session, call, campaign)
+        else:
+            _run_scorecard_step(session, call, campaign)
 
 
 def _run_transcript_step(session: Session, call: Call) -> None:
@@ -84,6 +90,42 @@ def _run_scorecard_step(session: Session, call: Call, campaign: Campaign | None)
     call.scorecard_generated_at = _utcnow()
     _save(session, call)
     _log_event(session, call, "scorecard_generated", payload={"recommendation": scorecard.get("recommendation")})
+
+
+def _run_outreach_summary_step(session: Session, call: Call, campaign: Campaign) -> None:
+    """No status field for this step - idempotency is gated on outreach_summary still being
+    None, which is enough for a single-shot recap (unlike the hiring module's richer
+    transcript/scorecard pipeline)."""
+    if call.outreach_summary is not None:
+        return
+
+    try:
+        summary = build_outreach_summary(call, campaign)
+    except Exception as exc:  # a flaky LLM backend must never break the pipeline
+        logger.exception("Outreach summary generation failed for call %s", call.id)
+        _log_event(session, call, "outreach_summary_failed", payload={"error": str(exc)})
+        return
+
+    call.outreach_summary = summary
+    _save(session, call)
+    _log_event(session, call, "outreach_summary_generated")
+
+
+def _run_attendance_step(session: Session, call: Call, campaign: Campaign) -> None:
+    """Reconcile the supervisor roll-call's roster into AttendanceRecords. Imported lazily to
+    avoid a module-level cycle: app.services.attendance imports app.services.calls, which
+    imports this module (see providers/mock.py's _push_intermediate_update for the same
+    pattern)."""
+    from app.services import attendance as attendance_service
+
+    try:
+        summary = attendance_service.process_supervisor_call(session, call, campaign)
+    except Exception as exc:  # a bug in roster reconciliation must never break the pipeline
+        logger.exception("Attendance processing failed for call %s", call.id)
+        _log_event(session, call, "attendance_processing_failed", payload={"error": str(exc)})
+        return
+
+    _log_event(session, call, "attendance_processed", payload=summary)
 
 
 def _save(session: Session, call: Call) -> None:

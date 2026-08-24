@@ -34,9 +34,21 @@ export async function apiGet<T>(path: string): Promise<T> {
 /**
  * POST `body` as JSON to `path` against the backend and parse the response as JSON.
  */
-export async function apiPost<T>(path: string, body: unknown): Promise<T> {
+export async function apiPost<T>(path: string, body?: unknown): Promise<T> {
   const response = await fetch(`${API_URL}${path}`, {
     method: "POST",
+    headers: { Accept: "application/json", "Content-Type": "application/json" },
+    body: JSON.stringify(body ?? {}),
+  });
+  return parseJsonOrThrow<T>(response, path);
+}
+
+/**
+ * PATCH `body` as JSON to `path` against the backend and parse the response as JSON.
+ */
+export async function apiPatch<T>(path: string, body: unknown): Promise<T> {
+  const response = await fetch(`${API_URL}${path}`, {
+    method: "PATCH",
     headers: { Accept: "application/json", "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });

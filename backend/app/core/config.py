@@ -1,3 +1,4 @@
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -17,6 +18,17 @@ class Settings(BaseSettings):
 
     # Database
     DATABASE_URL: str = "postgresql://hunar:hunar@localhost:5442/hunar"
+
+    @field_validator("DATABASE_URL")
+    @classmethod
+    def _normalize_database_url(cls, v: str) -> str:
+        # Managed Postgres on Render/Railway/Heroku hands out "postgres://" URLs, a scheme
+        # SQLAlchemy 1.4+ no longer recognizes (it wants the "postgresql://" scheme, same
+        # database, same psycopg2 driver) - normalize it here so a platform-provided
+        # DATABASE_URL works without the operator needing to edit it by hand.
+        if v.startswith("postgres://"):
+            return "postgresql://" + v[len("postgres://") :]
+        return v
 
     # CORS - comma-separated list of allowed origins
     BACKEND_CORS_ORIGINS: str = "http://localhost:3010"
@@ -53,7 +65,26 @@ class Settings(BaseSettings):
     TRANSCRIPTION_PROVIDER: str = "mock"  # mock | openai | disabled
     ENABLE_POST_CALL_PIPELINE: bool = True
 
-    # Phase 4+ integrations - unused in this phase
+    # People Search & Reachout (Module 2) - see app/integrations/people_search/. "mock" makes
+    # zero network calls, so the whole module demos end-to-end with no external keys.
+    PEOPLE_SEARCH_PROVIDER: str = "mock"  # mock | apollo | pdl
+    PEOPLE_SEARCH_MAX_RESULTS: int = 25
+    AGENT_AUTOCREATE: bool = True  # auto-create the outreach voice agent from the JD via the provider
+
+    # Attendance (Module 3) - see app/services/attendance.py. Supervisor roll-call + missed-
+    # call inbound both run on "mock" with zero network calls, so the whole module demos at
+    # 1,000-worker/100-location scale with no external keys.
+    ATTENDANCE_PRESENT_RATE: float = 0.85  # mock roll-call target present ratio (demo realism)
+    ATTENDANCE_MISSED_CALL_RATE: float = 0.4  # fraction auto-marked when simulating the missed-call window
+
+    # If true, seed the Attendance demo dataset (100 locations / ~1,000 workers) on startup if
+    # it isn't there yet - idempotent (see attendance.seed_demo), never destructive. Off by
+    # default so a local/native/docker-compose run never surprise-seeds your dev DB; the
+    # Attendance page's own "Seed demo data" button covers that case instead. Intended for the
+    # deployed environment, so a reviewer's first click lands on a populated dashboard with no
+    # manual step - see render.yaml.
+    DEMO_SEED_ON_START: bool = False
+
     APOLLO_API_KEY: str = ""
     PDL_API_KEY: str = ""
     ANTHROPIC_API_KEY: str = ""
