@@ -6,10 +6,13 @@ from uuid import UUID, uuid4
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
+from app.core.config import settings
+from app.core.scheduler import scheduler
 from app.models.call import Call
 from app.models.call_event import CallEvent
 from app.models.enums import CallEventSource
 from app.providers.base import CreateCallRequest, ProviderCall, ProviderError, VoiceProvider
+from app.services.post_call import post_process_call
 
 logger = logging.getLogger("app.services.calls")
 
@@ -49,23 +52,21 @@ def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def create_call(
+def create_draft_call(
     session: Session,
-    provider: VoiceProvider,
     *,
-    agent_id: str,
     callee_name: str,
     mobile_number: str,
     custom_data: dict[str, Any] | None = None,
     campaign_id: UUID | None = None,
 ) -> Call:
-    """Dispatch one call. The Call row (and its request_id) is persisted BEFORE we ever call
-    the provider, so a webhook or poll can always find it - even one that races ahead of this
-    function returning."""
-    request_id = f"req_{uuid4().hex}"
+    """Persist a Call row with its own request_id, but don't dispatch it to a provider yet.
+    A webhook or poll can already find this row by request_id from this point on, even
+    though it isn't dispatched - useful for a module (like Hiring) that wants to add
+    candidates now and dispatch them later or in bulk. See dispatch_call."""
     call = Call(
         campaign_id=campaign_id,
-        request_id=request_id,
+        request_id=f"req_{uuid4().hex}",
         callee_name=callee_name,
         mobile_number=mobile_number,
         custom_data=custom_data or {},
@@ -75,13 +76,19 @@ def create_call(
     session.add(call)
     session.commit()
     session.refresh(call)
+    return call
 
+
+def dispatch_call(session: Session, provider: VoiceProvider, call: Call, *, agent_id: str) -> Call:
+    """Dispatch (or re-dispatch/retry) an existing Call row to the provider. Reuses the
+    call's own request_id, so a retry after a failed dispatch keeps the same Call row - and
+    its CallEvent history - instead of creating a new one."""
     req = CreateCallRequest(
         agent_id=agent_id,
-        callee_name=callee_name,
-        mobile_number=mobile_number,
-        custom_data=custom_data or {},
-        request_id=request_id,
+        callee_name=call.callee_name,
+        mobile_number=call.mobile_number,
+        custom_data=call.custom_data,
+        request_id=call.request_id,
     )
     try:
         provider_call = provider.create_call(req)
@@ -100,6 +107,29 @@ def create_call(
     session.commit()
     session.refresh(call)
     return call
+
+
+def create_call(
+    session: Session,
+    provider: VoiceProvider,
+    *,
+    agent_id: str,
+    callee_name: str,
+    mobile_number: str,
+    custom_data: dict[str, Any] | None = None,
+    campaign_id: UUID | None = None,
+) -> Call:
+    """Create and immediately dispatch one call - create_draft_call + dispatch_call in one
+    step, for the dev Call Console and any other one-shot caller that doesn't need the
+    draft/dispatch split."""
+    call = create_draft_call(
+        session,
+        callee_name=callee_name,
+        mobile_number=mobile_number,
+        custom_data=custom_data,
+        campaign_id=campaign_id,
+    )
+    return dispatch_call(session, provider, call, agent_id=agent_id)
 
 
 def apply_call_update(session: Session, update: CallUpdate, *, source: CallEventSource) -> Call | None:
@@ -124,6 +154,12 @@ def apply_call_update(session: Session, update: CallUpdate, *, source: CallEvent
             session.commit()
             session.refresh(call)
         return call
+
+    # Captured before the merge below, so we can detect the FIRST moment this call has both
+    # a terminal lifecycle_status and a real result - that's what triggers the post-call
+    # pipeline, exactly once, regardless of which partial webhook happens to supply which
+    # field last.
+    was_ready = call.lifecycle_status == "COMPLETED" and call.result is not None
 
     call.provider_call_id = update.provider_call_id
     # Merge, don't overwrite: a None here means "this event didn't carry this field," not
@@ -165,7 +201,26 @@ def apply_call_update(session: Session, update: CallUpdate, *, source: CallEvent
 
     session.commit()
     session.refresh(call)
+
+    is_ready = call.lifecycle_status == "COMPLETED" and call.result is not None
+    if settings.ENABLE_POST_CALL_PIPELINE and not was_ready and is_ready:
+        schedule_post_processing(call.id)
+
     return call
+
+
+def schedule_post_processing(call_id: UUID) -> None:
+    """Schedule the transcript + scorecard pipeline for a completed call as a one-off
+    background job. Extracted so /rescore (app/modules/hiring/router.py) can force a re-run
+    through the exact same path apply_call_update uses automatically."""
+    scheduler.add_job(
+        post_process_call,
+        trigger="date",
+        args=[call_id],
+        id=f"post-process-{call_id}",
+        replace_existing=True,
+        misfire_grace_time=None,
+    )
 
 
 def list_calls(session: Session, *, campaign_id: UUID | None = None) -> list[Call]:

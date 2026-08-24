@@ -14,12 +14,14 @@ def create_campaign(
     name: str,
     module: Module,
     agent: Agent,
+    description: str | None = None,
     meta: dict[str, Any] | None = None,
 ) -> Campaign:
     """Snapshot the agent's result_schema at creation time, so a campaign's expected result
     shape doesn't silently drift if the agent is edited later."""
     campaign = Campaign(
         name=name,
+        description=description,
         module=module,
         agent_id=agent.id,
         result_schema=agent.result_schema,

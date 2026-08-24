@@ -55,11 +55,14 @@ from app.providers.factory import get_voice_provider  # noqa: E402
 
 @pytest.fixture(scope="session", autouse=True)
 def _force_mock_provider():
-    """Tests must never depend on the ambient VOICE_PROVIDER in .env - if it's set to
-    "hunar" for manual verification, a test that dispatches a call would otherwise make a
-    REAL request to the real Hunar API. Force "mock" for the whole test session regardless
-    of what's configured."""
+    """Tests must never depend on ambient provider settings in .env - if VOICE_PROVIDER,
+    LLM_PROVIDER, or TRANSCRIPTION_PROVIDER are set to a real backend for manual
+    verification, a test could otherwise make a REAL (possibly paid) request to a real API.
+    Force "mock" for all three, for the whole test session, regardless of what's configured.
+    """
     settings.VOICE_PROVIDER = "mock"
+    settings.LLM_PROVIDER = "mock"
+    settings.TRANSCRIPTION_PROVIDER = "mock"
     get_voice_provider.cache_clear()  # in case anything already cached a real provider
 
 

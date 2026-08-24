@@ -5,6 +5,8 @@ from uuid import UUID, uuid4
 from sqlalchemy import JSON, Column
 from sqlmodel import Field, SQLModel
 
+from app.models.enums import PostCallStatus
+
 
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
@@ -38,8 +40,16 @@ class Call(SQLModel, table=True):
 
     recording_url: str | None = None
     result: dict[str, Any] | None = Field(default=None, sa_column=Column(JSON))
-    transcript: str | None = None  # SEAM: populated by ASR in a later phase, unused for now
     duration_seconds: int | None = None
+
+    # Post-call pipeline (app/services/post_call.py) - populated once the call completes.
+    transcript: str | None = None
+    transcript_status: PostCallStatus = PostCallStatus.pending
+    transcript_error: str | None = None
+    scorecard: dict[str, Any] | None = Field(default=None, sa_column=Column(JSON))
+    scorecard_status: PostCallStatus = PostCallStatus.pending
+    scorecard_error: str | None = None
+    scorecard_generated_at: datetime | None = None
 
     created_at: datetime = Field(default_factory=_utcnow)
     updated_at: datetime = Field(default_factory=_utcnow)

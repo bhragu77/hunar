@@ -45,6 +45,14 @@ class Settings(BaseSettings):
     # Reject webhook signatures whose timestamp is older than this (replay-attack guard).
     WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS: int = 300
 
+    # Post-call pipeline (transcript + AI scorecard) - see app/services/post_call.py.
+    # "mock" backends make zero network calls, so the whole Hiring Assistant module demos
+    # end-to-end with no external keys of any kind.
+    LLM_PROVIDER: str = "mock"  # mock | anthropic | openai
+    LLM_MODEL: str = ""  # optional model override; each provider has its own sane default
+    TRANSCRIPTION_PROVIDER: str = "mock"  # mock | openai | disabled
+    ENABLE_POST_CALL_PIPELINE: bool = True
+
     # Phase 4+ integrations - unused in this phase
     APOLLO_API_KEY: str = ""
     PDL_API_KEY: str = ""

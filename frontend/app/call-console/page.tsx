@@ -18,11 +18,25 @@ const SOURCE_LABEL: Record<CallEventSource, string> = {
   webhook: "Webhook",
   poll: "Poller",
   mock: "Mock (internal)",
+  pipeline: "Pipeline",
 };
 
 function formatTime(iso: string | null) {
   if (!iso) return "—";
   return new Date(iso).toLocaleTimeString();
+}
+
+/** Hunar's real agents expose custom_variables as a plain list of names (no type hint);
+ * MockProvider's fake agents use a {name: type_hint} dict. Normalize to a lookup either way. */
+function customVariableHint(customVariables: Agent["custom_variables"], key: string): string | undefined {
+  if (Array.isArray(customVariables)) return undefined;
+  const value = customVariables[key];
+  return typeof value === "string" ? value : undefined;
+}
+
+function customVariableKeys(customVariables: Agent["custom_variables"] | undefined): string[] {
+  if (!customVariables) return [];
+  return Array.isArray(customVariables) ? customVariables : Object.keys(customVariables);
 }
 
 function statusVariant(status: string): "default" | "secondary" | "destructive" {
@@ -68,7 +82,7 @@ export default function CallConsolePage() {
     mutationFn: () => {
       const parsedCustomData: Record<string, unknown> = {};
       for (const [key, value] of Object.entries(customData)) {
-        const hint = selectedAgent?.custom_variables[key];
+        const hint = selectedAgent ? customVariableHint(selectedAgent.custom_variables, key) : undefined;
         parsedCustomData[key] = hint === "number" ? Number(value) : value;
       }
       return apiPost<{ id: string }>("/api/calls", {
@@ -93,7 +107,7 @@ export default function CallConsolePage() {
     setSelectedAgentId(agentId);
     const agent = agentsQuery.data?.find((a) => a.id === agentId);
     const nextCustomData: Record<string, string> = {};
-    for (const key of Object.keys(agent?.custom_variables ?? {})) {
+    for (const key of customVariableKeys(agent?.custom_variables)) {
       nextCustomData[key] = "";
     }
     setCustomData(nextCustomData);
@@ -167,22 +181,26 @@ export default function CallConsolePage() {
                 />
               </div>
 
-              {selectedAgent && Object.keys(selectedAgent.custom_variables).length > 0 && (
+              {selectedAgent && customVariableKeys(selectedAgent.custom_variables).length > 0 && (
                 <div className="flex flex-col gap-3 rounded-md border p-3">
                   <p className="text-sm font-medium">Custom data for {selectedAgent.name}</p>
-                  {Object.entries(selectedAgent.custom_variables).map(([key, hint]) => (
-                    <div key={key} className="flex flex-col gap-2">
-                      <Label htmlFor={`custom_${key}`}>
-                        {key} <span className="text-muted-foreground">({String(hint)})</span>
-                      </Label>
-                      <Input
-                        id={`custom_${key}`}
-                        type={hint === "number" ? "number" : "text"}
-                        value={customData[key] ?? ""}
-                        onChange={(e) => setCustomData((prev) => ({ ...prev, [key]: e.target.value }))}
-                      />
-                    </div>
-                  ))}
+                  {customVariableKeys(selectedAgent.custom_variables).map((key) => {
+                    const hint = customVariableHint(selectedAgent.custom_variables, key);
+                    return (
+                      <div key={key} className="flex flex-col gap-2">
+                        <Label htmlFor={`custom_${key}`}>
+                          {key}
+                          {hint && <span className="text-muted-foreground"> ({hint})</span>}
+                        </Label>
+                        <Input
+                          id={`custom_${key}`}
+                          type={hint === "number" ? "number" : "text"}
+                          value={customData[key] ?? ""}
+                          onChange={(e) => setCustomData((prev) => ({ ...prev, [key]: e.target.value }))}
+                        />
+                      </div>
+                    );
+                  })}
                 </div>
               )}
 

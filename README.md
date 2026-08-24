@@ -4,13 +4,14 @@ Hiring-automation platform.
 
 - **Phase 1** built a runnable monorepo scaffold with a mock voice provider proving
   frontend ↔ backend ↔ database connectivity.
-- **Phase 2** (this phase) built the **Voice Core**: dispatch a voice call (or a batch) and
-  reliably capture its structured outcome, no matter how or when the result arrives. Modules
-  1–3 (Hiring Assistant, Outreach, Attendance) will be thin layers on top of this later.
+- **Phase 2** built the **Voice Core**: dispatch a voice call (or a batch) and reliably
+  capture its structured outcome, no matter how or when the result arrives.
+- **Phase 3** (this phase) built **Module 1: AI Hiring Assistant** on top of the Voice Core -
+  interviews, candidates, dispatch, and an AI-generated transcript + scorecard per candidate.
 
-People-search and LLM features don't exist yet — those land in later phases. Real Hunar API
-calls (agents, numbers, dispatching a call, receiving webhooks) are implemented and have been
-verified against the live API — see
+People-search (Module 2), Outreach, and Attendance don't exist yet — those land in later
+phases. Real Hunar API calls (agents, numbers, dispatching a call, receiving webhooks) are
+implemented and have been verified against the live API — see
 [Verifying against the real Hunar API](#verifying-against-the-real-hunar-api-optional).
 
 ## Architecture
@@ -63,17 +64,46 @@ exercised with zero external dependencies. If that self-POST fails for any reaso
 picks the call up within `POLL_STALE_AFTER_SECONDS` and reconciles it anyway
 (`CallEvent.source = poll`) - both paths land on identical state.
 
+### Module 1: AI Hiring Assistant
+
+An **interview** IS a `Campaign` with `module=hiring` (`name` = role title, `description` =
+the JD / evaluation criteria). A **candidate** IS a `Call` under that campaign. Dispatch goes
+through the exact same `calls_service` as everything else - nothing in this module
+reimplements webhook handling, polling, or `apply_call_update`.
+
+The only core change this module needed was a **hook**: when `apply_call_update` sees a call
+reach `lifecycle_status=COMPLETED` with a non-null `result` for the first time (regardless of
+which partial webhook supplies which field, or whether it arrives via poll instead), it
+schedules a one-off `post_process_call(call_id)` job (`app/services/post_call.py`):
+
+1. **Transcript** (`app/integrations/transcription.py`) - `TRANSCRIPTION_PROVIDER=mock`
+   synthesizes a short, plausible transcript from the call's result with no network;
+   `openai` downloads the real recording and transcribes it; `disabled` skips the step.
+2. **Scorecard** (`app/services/scorecard.py`) - `LLM_PROVIDER=mock` derives a deterministic
+   scorecard (recommendation/score/competencies) directly from the call's Hunar result, no
+   network; `anthropic`/`openai` call the real model via `app/integrations/llm.py` and fall
+   back to the mock scorecard on any failure, so a flaky LLM call never breaks the pipeline.
+
+Both steps are independently idempotent (each only runs while its own status is `pending`)
+and append `CallEvent`s (`source=pipeline`) for the timeline. `POST
+/api/hiring/candidates/{id}/rescore` resets both to `pending` and re-triggers the same job -
+the one deliberate way to force a re-run.
+
+**With `VOICE_PROVIDER=mock` + `LLM_PROVIDER=mock` + `TRANSCRIPTION_PROVIDER=mock`, the whole
+module runs with zero external keys of any kind.** Setting any one of the three to a real
+provider upgrades that layer alone, with no code changes.
+
 ### Module layout
 
-Four product modules exist as route/router placeholders, filled in over later phases - they'll
-be built on top of the voice core above:
+The remaining three product modules exist as route/router placeholders, filled in over later
+phases - they'll be built on top of the voice core the same way Hiring was:
 
-| Module            | Frontend route        | Backend router                          | Phase |
-|-------------------|------------------------|------------------------------------------|-------|
-| Hiring Assistant  | `/hiring-assistant`    | `app/modules/hiring/router.py`           | 3     |
-| People Search     | `/people-search`       | `app/modules/people_search/router.py`    | 4     |
-| Outreach          | `/outreach`            | `app/modules/outreach/router.py`         | 5     |
-| Attendance        | `/attendance`          | `app/modules/attendance/router.py`       | 6     |
+| Module            | Frontend route        | Backend router                          | Status  |
+|-------------------|------------------------|------------------------------------------|---------|
+| Hiring Assistant  | `/hiring-assistant`    | `app/modules/hiring/router.py`           | Built (Phase 3) |
+| People Search     | `/people-search`       | `app/modules/people_search/router.py`    | Phase 4 |
+| Outreach          | `/outreach`            | `app/modules/outreach/router.py`         | Phase 5 |
+| Attendance        | `/attendance`          | `app/modules/attendance/router.py`       | Phase 6 |
 
 The voice core's own routes live in `app/modules/voice/router.py`, mounted directly under
 `/api` (no extra prefix): `GET /agents`, `GET /numbers`, `POST|GET /campaigns`,
@@ -194,6 +224,13 @@ Or open `http://localhost:3010/call-console` and dispatch a call from the UI: pi
 fill in callee name/number/custom data, hit dispatch, and watch the status badge and timeline
 update live until it reaches `COMPLETED` with a result and recording link.
 
+**Module 1 (Hiring Assistant):** open `http://localhost:3010/hiring-assistant`, create an
+interview (title + description + agent), add 2-3 candidates, and watch each one flip through
+statuses to `COMPLETED`, then show a transcript and a full AI scorecard with a
+recommendation and competency scores - all with zero external keys
+(`VOICE_PROVIDER`/`LLM_PROVIDER`/`TRANSCRIPTION_PROVIDER` all default to `mock`). The
+interview's summary funnel (by status, by recommendation) updates live as candidates finish.
+
 ## Tests & linting
 
 ```bash
@@ -240,10 +277,12 @@ testing against it):
 
 ## What's deliberately not here yet
 
-- People search, outreach, LLM content generation (`app/integrations/*` are empty stubs).
-- JD parsing, ASR, scorecards, or any other module business logic. `transcript` exists on
-  `Call` as a field but is unused - a seam for a later ASR phase.
-- Webhook event processing beyond applying the status update (no notifications, no side
-  effects triggered by a call completing).
+- People search (Module 2), outreach, attendance (`app/integrations/apollo.py` and
+  `pdl.py`, and the outreach/attendance routers, are still empty stubs).
+- JD → agent auto-generation - the interview's `description` is free text the recruiter
+  writes, not derived from a JD automatically.
+- Any post-call side effects beyond storing the transcript/scorecard (no notifications, no
+  auto-advancing a candidate, no calendar integration for the "schedule a technical round"
+  suggested follow-up).
 - Auth — this is single-tenant/local for now.
 - Alembic / migrations — schema changes mean resetting the dev DB (`docker compose down -v`).

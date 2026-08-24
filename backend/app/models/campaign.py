@@ -22,6 +22,7 @@ class Campaign(SQLModel, table=True):
 
     id: UUID = Field(default_factory=uuid4, primary_key=True)
     name: str
+    description: str | None = None  # the JD / evaluation criteria for the role (hiring module)
     module: Module
     agent_id: str
     result_schema: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
