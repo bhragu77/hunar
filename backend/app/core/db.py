@@ -8,7 +8,15 @@ engine = create_engine(settings.DATABASE_URL, echo=False)
 
 
 def init_db() -> None:
-    """Create all tables that don't exist yet. Safe to call on every startup."""
+    """Create all tables that don't exist yet. Safe to call on every startup.
+
+    Imports app.models first: SQLModel only knows about a table once its class has been
+    imported somewhere, and relying on that happening as a side effect of unrelated imports
+    elsewhere in the app is exactly the kind of thing that silently no-ops in a standalone
+    script or test. Import it explicitly here instead.
+    """
+    import app.models  # noqa: F401
+
     SQLModel.metadata.create_all(engine)
 
 

@@ -1,18 +1,50 @@
-from datetime import datetime
+from datetime import datetime, timezone
+from typing import Any
+from uuid import UUID, uuid4
 
+from sqlalchemy import JSON, Column
 from sqlmodel import Field, SQLModel
 
 
-class Call(SQLModel, table=True):
-    """Minimal local record of a voice call, so init_db has a table to create.
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc)
 
-    Phase 2 will expand this with full call/result persistence tied to the
-    Hunar webhook flow.
+
+class Call(SQLModel, table=True):
+    """One dispatched voice call. `raw_last_payload` holds the last applied CallUpdate
+    (see app/services/calls.py) verbatim - comparing against it is what makes
+    apply_call_update idempotent.
     """
 
-    id: int | None = Field(default=None, primary_key=True)
-    provider_call_id: str = Field(index=True)
-    agent_id: str
-    phone_number: str
-    status: str = "queued"
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    __tablename__ = "call"
+
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    campaign_id: UUID | None = Field(default=None, foreign_key="campaign.id", index=True)
+
+    # Our own correlation id, generated before we ever call the provider, so a webhook or poll
+    # can always find this row even if provider_call_id hasn't round-tripped back yet.
+    request_id: str = Field(index=True, unique=True)
+    provider_call_id: str | None = Field(default=None, index=True)
+
+    callee_name: str
+    mobile_number: str
+    custom_data: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
+
+    status: str = "NOT_STARTED"
+    lifecycle_status: str | None = None
+    engagement_status: str | None = None
+    answered_by: str | None = None
+    call_ended_by: str | None = None
+
+    recording_url: str | None = None
+    result: dict[str, Any] | None = Field(default=None, sa_column=Column(JSON))
+    transcript: str | None = None  # SEAM: populated by ASR in a later phase, unused for now
+    duration_seconds: int | None = None
+
+    created_at: datetime = Field(default_factory=_utcnow)
+    updated_at: datetime = Field(default_factory=_utcnow)
+    started_at: datetime | None = None
+    ended_at: datetime | None = None
+    last_polled_at: datetime | None = None
+
+    raw_last_payload: dict[str, Any] | None = Field(default=None, sa_column=Column(JSON))

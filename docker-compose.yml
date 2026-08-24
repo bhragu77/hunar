@@ -28,7 +28,16 @@ services:
       VOICE_PROVIDER: ${VOICE_PROVIDER:-mock}
       DATABASE_URL: postgresql://hunar:hunar@db:5432/hunar
       BACKEND_CORS_ORIGINS: ${BACKEND_CORS_ORIGINS:-http://localhost:3010}
+      # Container-internal address: the app listens on :8000 *inside* the container
+      # regardless of the host-side port mapping below, so MockProvider's self-POST must
+      # target :8000, not the host-facing BACKEND_PORT.
+      INTERNAL_BASE_URL: http://localhost:8000
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-}
+      MOCK_WEBHOOK_SECRET: ${MOCK_WEBHOOK_SECRET:-dev-mock-secret}
+      MOCK_CALL_DURATION_SECONDS: ${MOCK_CALL_DURATION_SECONDS:-8}
+      POLL_INTERVAL_SECONDS: ${POLL_INTERVAL_SECONDS:-10}
+      POLL_STALE_AFTER_SECONDS: ${POLL_STALE_AFTER_SECONDS:-20}
+      WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS: ${WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS:-300}
       APOLLO_API_KEY: ${APOLLO_API_KEY:-}
       PDL_API_KEY: ${PDL_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}

@@ -9,7 +9,9 @@ from app.api.router import api_router
 from app.core.config import settings
 from app.core.db import init_db
 from app.core.logging import configure_logging
+from app.core.scheduler import scheduler
 from app.schemas.health import HealthResponse
+from app.services.poller import poll_stale_calls
 
 configure_logging()
 logger = logging.getLogger("app")
@@ -19,7 +21,21 @@ logger = logging.getLogger("app")
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     logger.info("Starting up - initializing database")
     init_db()
+
+    scheduler.add_job(
+        poll_stale_calls,
+        trigger="interval",
+        seconds=settings.POLL_INTERVAL_SECONDS,
+        id="poll_stale_calls",
+        replace_existing=True,
+    )
+    scheduler.start()
+    logger.info("Background scheduler started (poll interval=%ss)", settings.POLL_INTERVAL_SECONDS)
+
     yield
+
+    scheduler.shutdown(wait=False)
+    logger.info("Background scheduler stopped")
 
 
 def create_app() -> FastAPI:
