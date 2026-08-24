@@ -17,12 +17,19 @@ logger = logging.getLogger("app.services.calls")
 class CallUpdate(BaseModel):
     """Canonical shape both the webhook receiver and the poller normalize into before calling
     apply_call_update. This is what makes the two paths converge on identical logic instead of
-    each hand-rolling its own field mapping."""
+    each hand-rolling its own field mapping.
+
+    Every field except provider_call_id/event_type is optional because real Hunar webhooks
+    are PARTIAL and event-scoped: call_status_updated carries status/duration/timestamps but
+    no result or recording_url; call_recording_done carries only a recording_url;
+    call_result_done carries only a result. apply_call_update merges - a field left as None
+    here means "not part of this update," not "clear this field."
+    """
 
     provider_call_id: str
     request_id: str | None = None
     event_type: str
-    status: str
+    status: str | None = None
     lifecycle_status: str | None = None
     engagement_status: str | None = None
     answered_by: str | None = None
@@ -119,14 +126,24 @@ def apply_call_update(session: Session, update: CallUpdate, *, source: CallEvent
         return call
 
     call.provider_call_id = update.provider_call_id
-    call.status = update.status
-    call.lifecycle_status = update.lifecycle_status
-    call.engagement_status = update.engagement_status
-    call.answered_by = update.answered_by
-    call.call_ended_by = update.call_ended_by
-    call.recording_url = update.recording_url
-    call.result = update.result
-    call.duration_seconds = update.duration_seconds
+    # Merge, don't overwrite: a None here means "this event didn't carry this field," not
+    # "clear it" - see CallUpdate's docstring for why that distinction matters.
+    if update.status is not None:
+        call.status = update.status
+    if update.lifecycle_status is not None:
+        call.lifecycle_status = update.lifecycle_status
+    if update.engagement_status is not None:
+        call.engagement_status = update.engagement_status
+    if update.answered_by is not None:
+        call.answered_by = update.answered_by
+    if update.call_ended_by is not None:
+        call.call_ended_by = update.call_ended_by
+    if update.recording_url is not None:
+        call.recording_url = update.recording_url
+    if update.result is not None:
+        call.result = update.result
+    if update.duration_seconds is not None:
+        call.duration_seconds = update.duration_seconds
     if update.started_at is not None:
         call.started_at = update.started_at
     if update.ended_at is not None:

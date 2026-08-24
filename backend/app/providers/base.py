@@ -16,13 +16,18 @@ class ProviderError(Exception):
 
 
 class Agent(BaseModel):
-    """A configured voice agent, shaped like Hunar's real agent schema."""
+    """A configured voice agent.
+
+    `custom_variables` tolerates both shapes seen in practice: MockProvider's fake agents use
+    a dict of {variable_name: type_hint}; the real Hunar API returns a plain list of variable
+    names with no type info (e.g. ["location", "company", "job_role"]).
+    """
 
     id: str
     name: str
     voice_persona: str
     language: str
-    custom_variables: dict[str, Any] = {}
+    custom_variables: dict[str, Any] | list[str] = {}
     result_schema: dict[str, Any] = {}
 
 

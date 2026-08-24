@@ -48,18 +48,23 @@ async def hunar_webhook(request: Request) -> dict[str, bool]:
     if not call_id:
         raise HTTPException(status_code=400, detail="Missing call_id in webhook payload")
 
+    duration_seconds = body.get("duration_seconds")
     update = CallUpdate(
         provider_call_id=call_id,
         request_id=body.get("request_id"),
         event_type=body.get("event_type", "unknown"),
-        status=body.get("status", "UNKNOWN"),
+        # No default here: a partial event (e.g. call_recording_done) simply doesn't carry a
+        # status, and apply_call_update treats a missing field as "leave it alone."
+        status=body.get("status"),
         lifecycle_status=body.get("lifecycle_status"),
         engagement_status=body.get("engagement_status"),
         answered_by=body.get("answered_by"),
         call_ended_by=body.get("call_ended_by"),
         recording_url=body.get("recording_url"),
         result=body.get("result"),
-        duration_seconds=body.get("duration_seconds"),
+        # Hunar sends this as a float (e.g. 50.0); round rather than let a fractional value
+        # fail strict int validation.
+        duration_seconds=round(duration_seconds) if duration_seconds is not None else None,
         started_at=body.get("started_at"),
         ended_at=body.get("ended_at"),
     )

@@ -8,7 +8,10 @@ Hiring-automation platform.
   reliably capture its structured outcome, no matter how or when the result arrives. Modules
   1–3 (Hiring Assistant, Outreach, Attendance) will be thin layers on top of this later.
 
-No real Hunar API calls, people-search, or LLM features exist yet — those land in later phases.
+People-search and LLM features don't exist yet — those land in later phases. Real Hunar API
+calls (agents, numbers, dispatching a call, receiving webhooks) are implemented and have been
+verified against the live API — see
+[Verifying against the real Hunar API](#verifying-against-the-real-hunar-api-optional).
 
 ## Architecture
 
@@ -199,16 +202,41 @@ cd backend && ruff check .
 cd frontend && npx tsc --noEmit
 ```
 
+`pytest` creates and uses its own `<database>_test` database (e.g. `hunar_test`), separate
+from whatever `DATABASE_URL` points at - it never touches your dev/live data, even though both
+share the same Postgres server by default.
+
 ## Verifying against the real Hunar API (optional)
 
 `HunarProvider` is implemented but not exercised by CI - it needs a live key and, for the
-webhook path, a publicly reachable URL. To manually verify:
+webhook path, a publicly reachable URL (ngrok). It **has** been verified against the live API
+for real, including three real dispatched calls with full webhook delivery. To reproduce:
 
 1. Set `VOICE_PROVIDER=hunar`, `HUNAR_API_KEY=<real key>` in `.env`.
 2. `curl localhost:8010/api/agents` and `/api/numbers` should return real data.
-3. To test a real call end to end, set `PUBLIC_BASE_URL` to an ngrok (or deployed) HTTPS URL
-   pointing at this backend, then dispatch a call to your own number via `/call-console` or
-   `POST /api/calls`.
+3. To test a real call end to end: run `ngrok http 8010`, set `PUBLIC_BASE_URL` to the
+   `https://*.ngrok-free.dev` URL it prints, restart the backend, then dispatch a call to a
+   number that has consented to receiving it, via `/call-console` or `POST /api/calls`.
+
+**Confirmed facts about the real API** (none of this was documented anywhere - discovered by
+testing against it):
+
+- All list routes use a **trailing slash** (`/agents/`, `/numbers/`, `/calls/`) and are
+  **paginated**: `{"count", "next", "previous", "results": [...]}`, not a bare array.
+- Real `Agent.custom_variables` is a **list of variable names** (`["location", "company",
+  "job_role"]`), not a dict of `{name: type_hint}` like MockProvider's fake agents use.
+- `duration_seconds` comes back as a **float** (e.g. `50.0`), not an int.
+- `callback_config`'s field names are `call_status_callback_url`,
+  `call_recording_callback_url`, `call_result_callback_url`, `call_summary_callback_url` -
+  Hunar's 422 response names the allowed fields if you send the wrong ones.
+- **Webhooks are partial and event-scoped**, not full snapshots: `call_status_updated` carries
+  status/duration/timestamps but no result or recording; `call_recording_done` carries only a
+  `recording_url`; `call_result_done` carries only a `result`. `apply_call_update` merges
+  fields (a field absent from a given webhook body means "not part of this update," not
+  "clear it") - this was a real bug caught during live verification, where a later partial
+  webhook was blanking out an already-correct status.
+- The real HMAC signing scheme (secret, message format, header names) matches
+  `verify_hunar_signature` exactly, confirmed by successfully verifying real signed webhooks.
 
 ## What's deliberately not here yet
 

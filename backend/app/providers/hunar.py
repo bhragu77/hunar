@@ -25,9 +25,12 @@ _BACKOFF_SECONDS = 0.5
 class HunarProvider(VoiceProvider):
     """Real Hunar voice API client.
 
-    Field names and endpoint paths follow Hunar's documented conventions as best we know
-    them; this is the one seam in the codebase not exercised by an automated test, since it
-    needs a live key. See README for the manual verification steps.
+    Paths and pagination were confirmed against the live API (trailing-slash routes, list
+    endpoints return {"results": [...]}). `agent_id`/`callee_name`/`mobile_number`/
+    `custom_data`/`request_id` on create-call are confirmed by symmetry with what GET returns
+    on existing calls. `callback_config`'s keys are confirmed too - Hunar's 422 response names
+    the allowed fields when you send the wrong ones. This provider is not exercised by the
+    automated test suite, since it needs a live key.
     """
 
     def __init__(self) -> None:
@@ -38,20 +41,20 @@ class HunarProvider(VoiceProvider):
         )
 
     def list_agents(self) -> list[Agent]:
-        data = self._request("GET", "/agents").json()
-        return [Agent(**item) for item in data]
+        data = self._request("GET", "/agents/").json()
+        return [Agent(**item) for item in _unwrap_results(data)]
 
     def get_agent(self, agent_id: str) -> Agent:
-        data = self._request("GET", f"/agents/{agent_id}").json()
+        data = self._request("GET", f"/agents/{agent_id}/").json()
         return Agent(**data)
 
     def create_agent(self, spec: AgentSpec) -> Agent:
-        data = self._request("POST", "/agents", json=spec.model_dump()).json()
+        data = self._request("POST", "/agents/", json=spec.model_dump()).json()
         return Agent(**data)
 
     def list_numbers(self) -> list[PhoneNumber]:
-        data = self._request("GET", "/phone-numbers").json()
-        return [PhoneNumber(**item) for item in data]
+        data = self._request("GET", "/numbers/").json()
+        return [PhoneNumber(**item) for item in _unwrap_results(data)]
 
     def create_call(self, req: CreateCallRequest) -> ProviderCall:
         body: dict[str, Any] = {
@@ -64,7 +67,7 @@ class HunarProvider(VoiceProvider):
         callback_config = _callback_config()
         if callback_config:
             body["callback_config"] = callback_config
-        data = self._request("POST", "/calls", json=body).json()
+        data = self._request("POST", "/calls/", json=body).json()
         return _provider_call_from_payload(data)
 
     def create_bulk_calls(self, agent_id: str, items: list[CreateCallRequest]) -> list[ProviderCall]:
@@ -83,11 +86,11 @@ class HunarProvider(VoiceProvider):
         callback_config = _callback_config()
         if callback_config:
             body["callback_config"] = callback_config
-        data = self._request("POST", "/calls/bulk", json=body).json()
-        return [_provider_call_from_payload(item) for item in data]
+        data = self._request("POST", "/calls/bulk/", json=body).json()
+        return [_provider_call_from_payload(item) for item in _unwrap_results(data)]
 
     def get_call(self, provider_call_id: str) -> ProviderCall:
-        data = self._request("GET", f"/calls/{provider_call_id}").json()
+        data = self._request("GET", f"/calls/{provider_call_id}/").json()
         return _provider_call_from_payload(data)
 
     def _request(self, method: str, path: str, **kwargs: Any) -> httpx.Response:
@@ -116,15 +119,20 @@ class HunarProvider(VoiceProvider):
 
 def _callback_config() -> dict[str, str] | None:
     """Only attach callback URLs when we have a public base to receive them at - there's no
-    point asking Hunar to call back http://localhost."""
+    point asking Hunar to call back http://localhost.
+
+    Field names confirmed against the live API's validation error message (Hunar rejects
+    unknown keys and names the allowed ones): call_status_callback_url,
+    call_recording_callback_url, call_result_callback_url, call_summary_callback_url.
+    """
     if not settings.PUBLIC_BASE_URL:
         return None
     webhook_url = f"{settings.PUBLIC_BASE_URL.rstrip('/')}/api/webhooks/hunar"
     return {
-        "call_status_updated_url": webhook_url,
-        "call_recording_done_url": webhook_url,
-        "call_result_done_url": webhook_url,
-        "call_summary_url": webhook_url,
+        "call_status_callback_url": webhook_url,
+        "call_recording_callback_url": webhook_url,
+        "call_result_callback_url": webhook_url,
+        "call_summary_callback_url": webhook_url,
     }
 
 
@@ -144,6 +152,13 @@ def _raise_for_status(response: httpx.Response) -> None:
     raise ProviderError(f"Unexpected Hunar API response ({status}): {detail}", status_code=status)
 
 
+def _unwrap_results(data: Any) -> list[dict[str, Any]]:
+    """List endpoints are paginated: {"count", "next", "previous", "results": [...]}."""
+    if isinstance(data, dict) and "results" in data:
+        return data["results"]
+    return data
+
+
 def _safe_detail(response: httpx.Response) -> str:
     try:
         body = response.json()
@@ -155,6 +170,7 @@ def _safe_detail(response: httpx.Response) -> str:
 
 
 def _provider_call_from_payload(data: dict[str, Any]) -> ProviderCall:
+    duration = data.get("duration_seconds")
     return ProviderCall(
         provider_call_id=data.get("call_id") or data.get("id") or data["provider_call_id"],
         request_id=data.get("request_id"),
@@ -165,7 +181,8 @@ def _provider_call_from_payload(data: dict[str, Any]) -> ProviderCall:
         call_ended_by=data.get("call_ended_by"),
         recording_url=data.get("recording_url"),
         result=data.get("result"),
-        duration_seconds=data.get("duration_seconds"),
+        # Hunar returns this as a float (e.g. 50.0); our internal shape is int seconds.
+        duration_seconds=round(duration) if duration is not None else None,
         started_at=data.get("started_at"),
         ended_at=data.get("ended_at"),
     )
