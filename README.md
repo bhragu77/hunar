@@ -5,8 +5,8 @@ Search & Reachout**, and **Attendance** (phone-call roll-call across distributed
 on one reusable **Voice Core** that dispatches calls and reliably captures their outcome no
 matter how or when the result arrives.
 
-**Live demo:** _add your deployed URL here after following [DEPLOYMENT.md](DEPLOYMENT.md)_
-**Repo:** _add your GitHub URL here_
+**Live demo:** https://hunar-eta.vercel.app
+**Repo:** https://github.com/bhragu77/hunar
 
 Every provider defaults to **mock** (`VOICE_PROVIDER` / `LLM_PROVIDER` /
 `TRANSCRIPTION_PROVIDER` / `PEOPLE_SEARCH_PROVIDER`), so the whole app — all three modules,
