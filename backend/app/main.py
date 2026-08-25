@@ -9,6 +9,7 @@ from app.api.router import api_router
 from app.core.config import settings
 from app.core.db import init_db
 from app.core.logging import configure_logging
+from app.core.runtime_state import get_voice_provider_name
 from app.core.scheduler import scheduler
 from app.schemas.health import HealthResponse
 from app.services.poller import poll_stale_calls
@@ -73,7 +74,7 @@ def create_app() -> FastAPI:
 
     @app.get("/health", response_model=HealthResponse)
     def health() -> HealthResponse:
-        return HealthResponse(status="ok", provider=settings.VOICE_PROVIDER)
+        return HealthResponse(status="ok", provider=get_voice_provider_name())
 
     return app
 

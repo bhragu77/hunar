@@ -190,3 +190,58 @@ def test_poll_stale_calls_reconciles_non_terminal_calls(monkeypatch):
         reconciled = session.get(Call, call_id)
     assert reconciled.status == "COMPLETED"
     assert reconciled.last_polled_at is not None
+
+
+def test_voice_provider_setting_requires_internal_token(monkeypatch):
+    monkeypatch.setattr(settings, "HUNAR_API_KEY", "sk-fake-key-for-this-test")
+    client = TestClient(app)
+
+    no_token = client.post("/api/settings/voice-provider", json={"provider": "hunar"})
+    assert no_token.status_code == 403
+
+    wrong_token = client.post(
+        "/api/settings/voice-provider",
+        json={"provider": "hunar"},
+        headers={"X-Internal-Token": "not-the-real-token"},
+    )
+    assert wrong_token.status_code == 403
+    # neither attempt actually flipped it
+    assert client.get("/api/settings/voice-provider").json()["provider"] == "mock"
+
+
+def test_voice_provider_setting_get_and_toggle(monkeypatch):
+    from app.providers.factory import get_voice_provider as active_provider
+
+    client = TestClient(app)
+    auth_headers = {"X-Internal-Token": settings.INTERNAL_API_TOKEN}
+
+    # not configured -> can't switch to hunar
+    monkeypatch.setattr(settings, "HUNAR_API_KEY", "replace-me")
+    initial = client.get("/api/settings/voice-provider").json()
+    assert initial["provider"] == "mock"
+    assert initial["hunar_configured"] is False
+
+    rejected = client.post("/api/settings/voice-provider", json={"provider": "hunar"}, headers=auth_headers)
+    assert rejected.status_code == 422
+
+    # invalid provider name, regardless of configuration
+    invalid = client.post("/api/settings/voice-provider", json={"provider": "bogus"}, headers=auth_headers)
+    assert invalid.status_code == 422
+
+    # health reflects the live toggle, not just the startup default
+    assert client.get("/health").json()["provider"] == "mock"
+    assert active_provider().__class__.__name__ == "MockProvider"
+
+    # configured -> switching to hunar (and back) works and health reflects it live
+    monkeypatch.setattr(settings, "HUNAR_API_KEY", "sk-fake-key-for-this-test")
+    configured = client.get("/api/settings/voice-provider").json()
+    assert configured["hunar_configured"] is True
+
+    switched = client.post("/api/settings/voice-provider", json={"provider": "hunar"}, headers=auth_headers)
+    assert switched.status_code == 200
+    assert switched.json()["provider"] == "hunar"
+    assert client.get("/health").json()["provider"] == "hunar"
+
+    back = client.post("/api/settings/voice-provider", json={"provider": "mock"}, headers=auth_headers)
+    assert back.status_code == 200
+    assert back.json()["provider"] == "mock"

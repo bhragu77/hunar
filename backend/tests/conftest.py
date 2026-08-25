@@ -46,6 +46,7 @@ from sqlmodel import Session, delete  # noqa: E402
 
 from app.core.config import settings  # noqa: E402
 from app.core.db import engine, init_db  # noqa: E402
+from app.core.runtime_state import set_voice_provider_name  # noqa: E402
 from app.core.scheduler import scheduler, wait_until_idle  # noqa: E402
 from app.models.attendance_record import AttendanceRecord  # noqa: E402
 from app.models.call import Call  # noqa: E402
@@ -54,7 +55,7 @@ from app.models.campaign import Campaign  # noqa: E402
 from app.models.location import Location  # noqa: E402
 from app.models.sourced_candidate import SourcedCandidate  # noqa: E402
 from app.models.worker import Worker  # noqa: E402
-from app.providers.factory import get_voice_provider  # noqa: E402
+from app.providers.factory import clear_provider_cache  # noqa: E402
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -63,12 +64,17 @@ def _force_mock_provider():
     LLM_PROVIDER, or TRANSCRIPTION_PROVIDER are set to a real backend for manual
     verification, a test could otherwise make a REAL (possibly paid) request to a real API.
     Force "mock" for all three, for the whole test session, regardless of what's configured.
+
+    Sets both settings.VOICE_PROVIDER (the startup default) and the runtime_state toggle
+    (what get_voice_provider() actually reads) - the runtime value is what was live at import
+    time, before this fixture ever runs, so setting only the former would silently no-op.
     """
     settings.VOICE_PROVIDER = "mock"
     settings.LLM_PROVIDER = "mock"
     settings.TRANSCRIPTION_PROVIDER = "mock"
     settings.PEOPLE_SEARCH_PROVIDER = "mock"
-    get_voice_provider.cache_clear()  # in case anything already cached a real provider
+    set_voice_provider_name("mock")
+    clear_provider_cache()  # in case anything already cached a real provider
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -92,10 +98,14 @@ def _test_scheduler():
 
 @pytest.fixture(autouse=True)
 def _reset_provider_cache():
-    """MockProvider holds in-memory per-call state, so give each test a fresh instance."""
-    get_voice_provider.cache_clear()
+    """MockProvider holds in-memory per-call state, so give each test a fresh instance. Also
+    resets the runtime_state voice-provider toggle to "mock", in case a previous test (e.g.
+    the settings-endpoint test) switched it to "hunar" and didn't get a chance to switch back."""
+    set_voice_provider_name("mock")
+    clear_provider_cache()
     yield
-    get_voice_provider.cache_clear()
+    set_voice_provider_name("mock")
+    clear_provider_cache()
 
 
 @pytest.fixture(autouse=True)

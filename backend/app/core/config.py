@@ -90,6 +90,16 @@ class Settings(BaseSettings):
     ANTHROPIC_API_KEY: str = ""
     OPENAI_API_KEY: str = ""
 
+    # Shared secret between this backend and the frontend's own server-side route
+    # (frontend/app/api/voice-provider/route.ts) - see POST /api/settings/voice-provider.
+    # The browser never sees this: it calls the frontend's same-origin route, which checks the
+    # visitor's NextAuth session (rejecting guests) and only then forwards the request here
+    # with this header. Without it, "guests can't enable real calls" would only be a frontend
+    # UI nicety - anyone could still POST directly to this backend's public URL and flip it.
+    # Matching dev placeholders on both sides by default so local dev works with zero setup;
+    # set a real matching value on both services in production.
+    INTERNAL_API_TOKEN: str = "dev-internal-token-change-me"
+
     @property
     def cors_origins_list(self) -> list[str]:
         return [origin.strip() for origin in self.BACKEND_CORS_ORIGINS.split(",") if origin.strip()]

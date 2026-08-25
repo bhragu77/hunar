@@ -15,7 +15,7 @@ from app.models.call import Call
 from app.models.enums import CallEventSource
 from app.models.sourced_candidate import SourcedCandidate
 from app.providers.base import ProviderError
-from app.providers.factory import get_voice_provider
+from app.providers.factory import clear_provider_cache, get_voice_provider
 from app.services.agent_designer import RESULT_SCHEMA, design_outreach_agent
 from app.services.calls import apply_call_update, provider_call_to_update
 from app.services.jd_parser import parse_jd_to_criteria
@@ -182,7 +182,7 @@ def test_agent_autocreate_failure_path_returns_200(monkeypatch):
     from app.providers.mock import MockProvider
 
     monkeypatch.setattr(MockProvider, "create_agent", _boom)
-    get_voice_provider.cache_clear()
+    clear_provider_cache()
 
     client = TestClient(app)
     resp = client.post("/api/outreach/campaigns", json={"title": "Backend Engineer", "job_description": _JD})
@@ -192,7 +192,7 @@ def test_agent_autocreate_failure_path_returns_200(monkeypatch):
     assert body["agent_autocreated"] is False
     assert "mock outage" in body["agent_create_error"]
 
-    get_voice_provider.cache_clear()
+    clear_provider_cache()
 
 
 def test_dispatch_skips_candidates_without_phone(monkeypatch):

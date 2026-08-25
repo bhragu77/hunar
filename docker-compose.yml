@@ -54,6 +54,8 @@ services:
       ATTENDANCE_PRESENT_RATE: ${ATTENDANCE_PRESENT_RATE:-0.85}
       ATTENDANCE_MISSED_CALL_RATE: ${ATTENDANCE_MISSED_CALL_RATE:-0.4}
       DEMO_SEED_ON_START: ${DEMO_SEED_ON_START:-false}
+      # Shared with the frontend service below - see app/core/config.py's INTERNAL_API_TOKEN.
+      INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN:-dev-internal-token-change-me}
     ports:
       - "${BACKEND_PORT:-8010}:8000"
     volumes:
@@ -73,6 +75,20 @@ services:
       - backend
     environment:
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8010}
+      # Server-side-only backend URL, for the frontend's own API routes (e.g.
+      # app/api/voice-provider/route.ts) to call the backend from inside this container -
+      # "localhost" here would mean this container, not the backend one. Not needed outside
+      # docker-compose (native dev and Vercel+Render both have NEXT_PUBLIC_API_URL already
+      # reachable server-side too).
+      INTERNAL_API_URL: http://backend:8000
+      # Auth (Google OAuth + guest mode) - see frontend/auth.ts. Google sign-in needs real
+      # AUTH_GOOGLE_ID/SECRET from Google Cloud Console; guest mode works without them.
+      AUTH_SECRET: ${AUTH_SECRET:-dev-not-a-real-secret-change-me}
+      AUTH_GOOGLE_ID: ${AUTH_GOOGLE_ID:-}
+      AUTH_GOOGLE_SECRET: ${AUTH_GOOGLE_SECRET:-}
+      AUTH_URL: ${AUTH_URL:-http://localhost:3010}
+      # Shared with the backend service above - see app/api/voice-provider/route.ts.
+      INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN:-dev-internal-token-change-me}
     ports:
       - "${FRONTEND_PORT:-3010}:3000"
 

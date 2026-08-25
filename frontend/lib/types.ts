@@ -343,3 +343,8 @@ export type DispatchRunResponse = {
 export type SimulateMissedCallsResponse = {
   marked_present: number;
 };
+
+export type VoiceProviderState = {
+  provider: "mock" | "hunar";
+  hunar_configured: boolean;
+};
