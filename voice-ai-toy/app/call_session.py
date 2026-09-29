@@ -11,7 +11,7 @@ from .tts import synthesize_frames
 
 logger = logging.getLogger("voice_ai_toy.session")
 
-GREETING = "Hi, this is a toy voice assistant. Go ahead and ask me something."
+GREETING = "Hi Gangula Reddy, this is a toy voice assistant. Go ahead and ask me something."
 
 
 class CallSession:

@@ -1,7 +1,7 @@
 # Voice AI Toy Pipeline
 
 A minimal, from-scratch implementation of the cascaded voice-AI pipeline discussed alongside
-the Hunar project: **Twilio (telephony) → Deepgram (streaming STT) → Groq/Llama 3.3 70B (the
+the Hunar project: **Twilio (telephony) → Deepgram (streaming STT) → Groq/gpt-oss-20b (the
 "brain") → Deepgram Aura (streaming TTS) → back to the caller**, including barge-in
 (interrupting the bot mid-sentence). This is a *learning* project, not a production system -
 the point is to see every stage of the pipeline that a managed platform like Hunar normally
@@ -22,7 +22,7 @@ Caller's phone
  Deepgram streaming STT (app/stt.py)                 │                   │
      │  transcript + speech_final                    │                   │
      ▼                                               │                   │
- Groq / Llama 3.3 70B (app/llm.py)                    │                   │
+ Groq / gpt-oss-20b (app/llm.py)                    │                   │
      │  reply text                                   │                   │
      ▼                                               │                   │
  Deepgram Aura TTS, streamed (app/tts.py) ────────────┘                   │
@@ -46,7 +46,7 @@ completion call) is visible in the code.
   `DEEPGRAM_STT_ENDPOINTING_MS`) decides when the caller's turn is over - not a fixed timer
   we write ourselves.
 - **`app/llm.py`** - a single OpenAI-compatible chat completion call to Groq, serving the
-  open-source Llama 3.3 70B model. The system prompt keeps replies short because they're
+  open-weight gpt-oss-20b model (reasoning effort set to "low" to keep its hidden reasoning pass short). The system prompt keeps replies short because they're
   read aloud, not displayed.
 - **`app/tts.py`** - streams Deepgram Aura's audio response and re-chunks it into
   20ms/160-byte mu-law frames matching Twilio's native telephony format exactly, so there's
